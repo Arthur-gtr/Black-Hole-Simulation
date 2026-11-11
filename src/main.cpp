@@ -1,6 +1,6 @@
-#include "Logger.hpp"
+#include "Logger/Logger.hpp"
 
 int main(void)
 {
-    LOG_INFO("Start Black Hole Simulation")
+    LOG_INFO("Start Black Hole Simulation");
 }
