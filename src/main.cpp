@@ -46,11 +46,12 @@ public:
             window->close();
         }
 
-        float time = glfwGetTime();
+       float time = glfwGetTime();
 
-        float camX = std::sin(time * 0.2f) * camera.distance;
-        float camZ = std::cos(time * 0.2f) * camera.distance;
-        float camY = 2.0f;
+        float camX = std::sin(time * 0.02f) * camera.distance;
+        float camZ = std::cos(time * 0.02f) * camera.distance;
+
+        float camY = 1.0f; 
 
         camera.pos = Vec3(camX, camY, camZ);
         camera.dir = Vec3(0.0f, 0.0f, 0.0f) - camera.pos;
