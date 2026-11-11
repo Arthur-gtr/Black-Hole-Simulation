@@ -36,7 +36,7 @@ public:
    * @param game Game instance to run.
    * @return 0 when the loop finishes normally.
    */
-  template <typename TGame> 
+  template <typename TGame>
   int run(TGame &game) {
     if constexpr (requires { game.onLoad(); }) {
       game.onLoad();
