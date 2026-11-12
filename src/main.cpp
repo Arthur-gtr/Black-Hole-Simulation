@@ -17,7 +17,7 @@ private:
 
 public:
     void onLoad() {
-        window = std::make_unique<Window>(1280, 720, "Simulation Trou Noir 3D - RK4");
+        window = std::make_unique<Window>(1280, 720, "Black hole simulation");
 
         shader = std::make_unique<Shader>("src/shader/raytracer.vert", "src/shader/raytracer.frag");
 
@@ -34,7 +34,7 @@ public:
         glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 2 * sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
 
-        camera.distance = 10.0;
+        camera.distance = 20.0;
     }
 
     bool shouldContinue() {

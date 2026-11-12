@@ -33,7 +33,11 @@ public:
         glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
         glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-        _window.reset(glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr));
+        GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+
+        const GLFWvidmode* mode = glfwGetVideoMode(monitor);
+
+        _window.reset(glfwCreateWindow(mode->width, mode->height, title.c_str(), monitor, nullptr));
 
         if (!_window) {
             LOG_ERROR("Error with the window creation");
