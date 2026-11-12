@@ -29,9 +29,9 @@ float noise(vec2 p) {
 float fbm(vec2 p) {
     float v = 0.0;
     float a = 0.5;
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 3; i++) {
         v += a * noise(p);
-        p *= 2.02;
+        p *= 2.03;
         a *= 0.5;
     }
     return v;
@@ -59,42 +59,55 @@ vec3 calc_accel(vec3 pos, float h2) {
     return -1.5 * h2 * pos / max(r5, 0.0001);
 }
 
-vec3 shadeDisk(vec3 hitPos, vec3 rayDir, float r) {
-    float beta = sqrt(0.5 / max(r - 1.0, 0.5)); 
-    vec3 diskVelDir = normalize(vec3(-hitPos.z, 0.0, hitPos.x));
+void sampleGasVolume(vec3 p, vec3 rayDir, float r, float dt, inout vec3 accumColor, inout float transmittance) {
+    float diskHalfHeight = 0.12 + 0.035 * (r - 2.0);
+    float normY = abs(p.y) / diskHalfHeight;
 
+    if (normY >= 1.0)
+        return;
+
+    float spiralPhase = u_time * 1.5 / pow(r, 1.2) - r * 1.6;
+    float s = sin(spiralPhase);
+    float c = cos(spiralPhase);
+    vec2 rotXZ = vec2(c * p.x - s * p.z, s * p.x + c * p.z);
+
+    float n1 = fbm(rotXZ * 1.3 + vec2(p.y * 5.0, -p.y * 5.0));
+    float n2 = fbm(rotXZ * 2.8 - vec2(p.y * 10.0, u_time * 0.4));
+
+    float rings = sin(r * 14.0 + n1 * 6.0) * 0.5 + 0.5;
+    float clouds = n1 * 0.55 + n2 * 0.45;
+
+    float verticalFade = exp(-normY * normY * 3.5) * (1.0 - normY);
+    float radialFade = smoothstep(2.0, 2.9, r) * smoothstep(9.0, 4.0, r);
+
+    float density = smoothstep(0.28, 0.85, mix(clouds, rings, 0.45));
+    density *= verticalFade * radialFade;
+
+    if (density < 0.005) return;
+
+    float beta = sqrt(0.5 / max(r - 1.0, 0.5));
+    vec3 diskVelDir = normalize(vec3(-p.z, 0.0, p.x));
     float gamma = 1.0 / sqrt(max(1.0 - beta * beta, 0.01));
     float doppler = 1.0 / (gamma * (1.0 + beta * dot(rayDir, diskVelDir)));
     float gravRedshift = sqrt(max(1.0 - 1.0 / r, 0.01));
 
     float g = doppler * gravRedshift;
-
     float beaming = pow(clamp(g, 0.2, 2.5), 3.2);
 
-    vec3 coldColor = vec3(0.8, 0.15, 0.02); 
-    vec3 midColor  = vec3(1.0, 0.65, 0.25);
-    vec3 hotColor  = vec3(0.85, 0.92, 1.0);
-    
-    vec3 baseColor = mix(coldColor, midColor, smoothstep(0.5, 1.0, g));
-    baseColor = mix(baseColor, hotColor, smoothstep(1.0, 1.6, g));
+    float coreHeat = exp(-normY * 2.5);
+    vec3 coldSmoke = vec3(0.5, 0.08, 0.01);
+    vec3 midGold   = vec3(1.0, 0.55, 0.15);
+    vec3 hotCore   = vec3(0.9, 0.95, 1.0);
 
-    float angle = atan(hitPos.z, hitPos.x);
-    float angularSpeed = 1.5 / pow(r, 1.5);
-    float rotAngle = angle + u_time * angularSpeed;
+    vec3 baseColor = mix(coldSmoke, midGold, smoothstep(0.4, 1.0, g * (0.6 + 0.4 * coreHeat)));
+    baseColor = mix(baseColor, hotCore, smoothstep(1.0, 1.65, g * coreHeat));
 
-    vec2 uvDisk = vec2(r * 2.5, rotAngle * 2.0 + r * 3.0);
-    float n1 = fbm(vec2(r * 3.0, sin(rotAngle) * 3.0 + r * 2.0));
-    float n2 = fbm(vec2(r * 6.0, cos(rotAngle) * 3.0 - r * 4.0));
-    float rings = sin(r * 18.0 + n1 * 4.0) * 0.5 + 0.5;
+    float sigma_a = 4.5;
+    float stepAlpha = 1.0 - exp(-density * dt * sigma_a);
 
-    float density = mix(n1 * 0.6 + n2 * 0.4, rings, 0.45);
-    density = smoothstep(0.15, 0.85, density);
-
-    float innerEdge = smoothstep(1.8, 2.6, r);
-    float outerEdge = smoothstep(9.0, 3.5, r);
-    float radialProfile = innerEdge * outerEdge;
-
-    return baseColor * density * beaming * radialProfile * 2.2;
+    vec3 emission = baseColor * beaming * 2.8;
+    accumColor += transmittance * emission * stepAlpha;
+    transmittance *= (1.0 - stepAlpha);
 }
 
 void main() {
@@ -109,19 +122,32 @@ void main() {
     vec3 accumColor = vec3(0.0);
     float transmittance = 1.0;
     bool fell_in = false;
-
     float min_r = 1000.0;
 
-    for(int i = 0; i < 700; i++) {
+    float dither = hash(gl_FragCoord.xy);
+    p += v * dither * 0.03;
+
+    for(int i = 0; i < 280; i++) {
         float r = length(p);
         min_r = min(min_r, r);
 
-        if (r <= 1.02) {
+        if (r <= 1.02 || (r < 1.5 && dot(p, v) < 0.0)) {
             fell_in = true;
             break;
         }
 
-        float dt = clamp(0.02 * (r - 0.8), 0.01, 0.25);
+        float dt = clamp(0.025 * (r - 0.8), 0.01, 0.25);
+
+        if (r > 1.8 && r < 9.5) {
+            float distToPlane = abs(p.y);
+            dt = min(dt, max(0.025, distToPlane * 0.35));
+        }
+
+        if (r > 2.0 && r < 9.0 && abs(p.y) < 0.45) {
+            sampleGasVolume(p, normalize(v), r, dt, accumColor, transmittance);
+            if (transmittance < 0.01)
+                break;
+        }
 
         vec3 k1_v = calc_accel(p, h2) * dt;
         vec3 k1_p = v * dt;
@@ -135,39 +161,24 @@ void main() {
         vec3 k4_v = calc_accel(p + k3_p, h2) * dt;
         vec3 k4_p = (v + k3_v) * dt;
 
-        vec3 next_p = p + (k1_p + 2.0 * k2_p + 2.0 * k3_p + k4_p) / 6.0;
-        vec3 next_v = v + (k1_v + 2.0 * k2_v + 2.0 * k3_v + k4_v) / 6.0;
-
-        if (p.y * next_p.y < 0.0) {
-            float t = abs(p.y) / (abs(p.y) + abs(next_p.y));
-            vec3 hitPos = mix(p, next_p, t);
-            float hitR = length(hitPos);
-
-            if (hitR > 1.8 && hitR < 9.0) {
-                vec3 diskLight = shadeDisk(hitPos, normalize(v), hitR);
-
-                float alpha = clamp(length(diskLight) * 0.35, 0.0, 0.85);
-                accumColor += transmittance * diskLight;
-                transmittance *= (1.0 - alpha);
-
-                if (transmittance < 0.01) break;
-            }
-        }
-
-        p = next_p;
-        v = next_v;
+        p += (k1_p + 2.0 * k2_p + 2.0 * k3_p + k4_p) / 6.0;
+        v += (k1_v + 2.0 * k2_v + 2.0 * k3_v + k4_v) / 6.0;
 
         if (r > 25.0 && dot(p, v) > 0.0) {
             break;
         }
     }
 
-    if (!fell_in) {
-        accumColor += transmittance * getEnvironmentColor(normalize(v));
+    if (length(p) < 5.0 || dot(p, v) < 0.0) {
+        fell_in = true;
     }
 
-    float photonRing = exp(-abs(min_r - 1.5) * 18.0);
-    accumColor += vec3(1.0, 0.75, 0.4) * photonRing * 0.25 * transmittance;
+    if (!fell_in) {
+        accumColor += transmittance * getEnvironmentColor(normalize(v));
+
+        float photonRing = exp(-abs(min_r - 1.5) * 25.0);
+        accumColor += vec3(1.0, 0.75, 0.4) * photonRing * 0.2 * transmittance;
+    }
 
     float a = 2.51f;
     float b = 0.03f;
